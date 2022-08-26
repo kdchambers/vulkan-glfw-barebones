@@ -9,7 +9,6 @@ Minimal example of a vulkan / GLFW based application for zig.
 
 ## Running
 
-
     git clone --recurse-submodules https://github.com/kdchambers/vulkan-glfw-barebones
     cd vulkan-glfw-barebones
     zig build -Drelease-safe run
