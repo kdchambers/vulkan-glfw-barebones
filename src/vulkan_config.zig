@@ -6,6 +6,7 @@ const vk = @import("vulkan");
 
 pub const BaseDispatch = vk.BaseWrapper(.{
     .createInstance = true,
+    .enumerateInstanceExtensionProperties = true,
 });
 
 pub const InstanceDispatch = vk.InstanceWrapper(.{

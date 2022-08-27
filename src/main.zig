@@ -116,6 +116,7 @@ const GraphicsContext = struct {
     pipeline_layout: vk.PipelineLayout,
 
     instance: vk.Instance,
+    window: glfw.Window,
     surface: vk.SurfaceKHR,
     surface_format: vk.SurfaceFormatKHR,
     physical_device: vk.PhysicalDevice,
@@ -179,7 +180,11 @@ fn setup(allocator: std.mem.Allocator, app: *GraphicsContext) !void {
         return;
     }
 
-    // TODO: This is linux specific
+    // TODO This is linux specific
+    // Windows:        vulkan-1.dll
+    // Apple:          libvulkan.1.dylib
+    // OpenBSD/NetBSD: libvulkan.so
+    // Rest:           libvulkan.so.1
     if (clib.dlopen("libvulkan.so.1", clib.RTLD_NOW)) |vulkan_loader| {
         const vk_get_instance_proc_addr_fn_opt = @ptrCast(?*const fn (instance: vk.Instance, procname: [*:0]const u8) vk.PfnVoidFunction, clib.dlsym(vulkan_loader, "vkGetInstanceProcAddr"));
         if (vk_get_instance_proc_addr_fn_opt) |vk_get_instance_proc_addr_fn| {
@@ -194,7 +199,26 @@ fn setup(allocator: std.mem.Allocator, app: *GraphicsContext) !void {
         return error.FailedToGetVulkanSymbol;
     }
 
-    const instance_extensions = try glfw.getRequiredInstanceExtensions();
+    //
+    // Get required instance extensions
+    //
+    var instance_extension_properties: [10]vk.ExtensionProperties = undefined;
+    var instance_extension_properties_count: u32 = 0;
+    _ = try app.base_dispatch.enumerateInstanceExtensionProperties(null, &instance_extension_properties_count, null);
+    std.debug.assert(instance_extension_properties_count <= 10);
+    _ = try app.base_dispatch.enumerateInstanceExtensionProperties(null, &instance_extension_properties_count, &instance_extension_properties);
+
+    var instance_extensions: [10][:0]const u8 = undefined;
+
+    for (instance_extension_properties) |instance_extension_property, i| {
+        instance_extensions[i] = &instance_extension_property.extension_name;
+    }
+
+    std.log.info("Required extensions", .{});
+    for (instance_extensions) |instance_extension| {
+        std.debug.print(" {s}\n", .{instance_extension});
+    }
+
     app.instance = try app.base_dispatch.createInstance(&vk.InstanceCreateInfo{
         .p_application_info = &vk.ApplicationInfo{
             .p_application_name = application_name,
@@ -203,7 +227,7 @@ fn setup(allocator: std.mem.Allocator, app: *GraphicsContext) !void {
             .engine_version = vulkan_engine_version,
             .api_version = vulkan_api_version,
         },
-        .enabled_extension_count = @intCast(u32, instance_extensions.len),
+        .enabled_extension_count = @intCast(u32, instance_extension_properties.len),
         .pp_enabled_extension_names = @ptrCast([*]const [*:0]const u8, &instance_extensions),
         .enabled_layer_count = if (enable_validation_layers) validation_layers.len else 0,
         .pp_enabled_layer_names = if (enable_validation_layers) &validation_layers else undefined,
@@ -213,7 +237,7 @@ fn setup(allocator: std.mem.Allocator, app: *GraphicsContext) !void {
     app.instance_dispatch = try vulkan_config.InstanceDispatch.load(app.instance, vkGetInstanceProcAddr);
     errdefer app.instance_dispatch.destroyInstance(app.instance, null);
 
-    _ = try glfw.createWindowSurface(app.instance, app.window, &app.surface);
+    _ = try glfw.createWindowSurface(app.instance, app.window, null, &app.surface);
     errdefer app.instance_dispatch.destroySurfaceKHR(app.instance, app.surface, null);
 
     // Find a suitable physical device (GPU/APU) to use
