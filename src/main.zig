@@ -179,12 +179,6 @@ fn toSlice(string: [*:0]const u8) []const u8 {
 }
 
 fn setup(allocator: std.mem.Allocator, app: *GraphicsContext) !void {
-    try glfw.init(.{});
-
-    if (!glfw.vulkanSupported()) {
-        std.log.err("Vulkan is required", .{});
-        return;
-    }
 
     // TODO This is linux specific
     // Windows:        vulkan-1.dll
@@ -241,7 +235,6 @@ fn setup(allocator: std.mem.Allocator, app: *GraphicsContext) !void {
 
     for (instance_extension_properties[0..instance_extension_properties_count]) |*instance_extension_property| {
         const extension = toSlice(@ptrCast([*:0]const u8, &(instance_extension_property.extension_name)));
-        std.log.info("ext: '{s}'", .{extension});
         if (std.mem.eql(u8, "VK_KHR_wayland_surface", extension)) {
             surface_support.wayland = true;
             continue;
@@ -311,7 +304,24 @@ fn setup(allocator: std.mem.Allocator, app: *GraphicsContext) !void {
     app.instance_dispatch = try vulkan_config.InstanceDispatch.load(app.instance, vkGetInstanceProcAddr);
     errdefer app.instance_dispatch.destroyInstance(app.instance, null);
 
+    const glfw_platform_hint: glfw.PlatformType = blk: {
+        if (surface_support.windows) break :blk .win32;
+        if (surface_support.cocoa) break :blk .cocoa;
+        if (surface_support.wayland) break :blk .wayland;
+        if (surface_support.xlib or surface_support.xcb) break :blk .x11;
+        unreachable;
+    };
+
+    try glfw.init(.{ .platform = glfw_platform_hint });
+
+    if (!glfw.vulkanSupported()) {
+        std.log.err("GLFW reports vulkan is not supported", .{});
+        return error.GlfwNoVulkanSupport;
+    }
+
+    app.window = try glfw.Window.create(640, 480, "vulkan-glfw barebones", null, null, .{ .client_api = .no_api });
     _ = try glfw.createWindowSurface(app.instance, app.window, null, &app.surface);
+
     errdefer app.instance_dispatch.destroySurfaceKHR(app.instance, app.surface, null);
 
     // Find a suitable physical device (GPU/APU) to use
