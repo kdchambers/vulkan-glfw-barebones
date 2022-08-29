@@ -172,6 +172,12 @@ fn cleanup(allocator: std.mem.Allocator, app: *GraphicsContext) void {
     app.instance_dispatch.destroySurfaceKHR(app.instance, app.surface, null);
 }
 
+fn toSlice(string: [*:0]const u8) []const u8 {
+    var i: usize = 0;
+    while (string[i] != 0) : (i += 1) {}
+    return string[0..i];
+}
+
 fn setup(allocator: std.mem.Allocator, app: *GraphicsContext) !void {
     try glfw.init(.{});
 
@@ -202,22 +208,90 @@ fn setup(allocator: std.mem.Allocator, app: *GraphicsContext) !void {
     //
     // Get required instance extensions
     //
-    var instance_extension_properties: [10]vk.ExtensionProperties = undefined;
+    // TODO: This is a large-ish structuce, better to heap allocate
+    var instance_extension_properties: [40]vk.ExtensionProperties = undefined;
     var instance_extension_properties_count: u32 = 0;
-    _ = try app.base_dispatch.enumerateInstanceExtensionProperties(null, &instance_extension_properties_count, null);
-    std.debug.assert(instance_extension_properties_count <= 10);
-    _ = try app.base_dispatch.enumerateInstanceExtensionProperties(null, &instance_extension_properties_count, &instance_extension_properties);
-
-    var instance_extensions: [10][:0]const u8 = undefined;
-
-    for (instance_extension_properties) |instance_extension_property, i| {
-        instance_extensions[i] = &instance_extension_property.extension_name;
+    {
+        const result = app.base_dispatch.enumerateInstanceExtensionProperties(null, &instance_extension_properties_count, null) catch |err| {
+            std.log.err("Failed to enumerate vulkan instance extension properties. Error {}", .{err});
+            return err;
+        };
+        std.debug.assert(result == .success);
     }
 
-    std.log.info("Required extensions", .{});
-    for (instance_extensions) |instance_extension| {
-        std.debug.print(" {s}\n", .{instance_extension});
+    std.log.info("Vulkan instances extensions enumerated: {d}", .{instance_extension_properties_count});
+    std.debug.assert(instance_extension_properties_count <= 20);
+    {
+        const result = app.base_dispatch.enumerateInstanceExtensionProperties(null, &instance_extension_properties_count, &instance_extension_properties) catch |err| {
+            std.log.err("Failed to load vulkan instance extension properties. Error {}", .{err});
+            return err;
+        };
+        std.debug.assert(result == .success);
     }
+
+    const SurfaceSupport = struct {
+        surface: bool = false,
+        wayland: bool = false,
+        cocoa: bool = false,
+        xlib: bool = false,
+        xcb: bool = false,
+        windows: bool = false,
+    };
+    var surface_support = SurfaceSupport{};
+
+    for (instance_extension_properties[0..instance_extension_properties_count]) |*instance_extension_property| {
+        const extension = toSlice(@ptrCast([*:0]const u8, &(instance_extension_property.extension_name)));
+        std.log.info("ext: '{s}'", .{extension});
+        if (std.mem.eql(u8, "VK_KHR_wayland_surface", extension)) {
+            surface_support.wayland = true;
+            continue;
+        }
+        if (std.mem.eql(u8, "VK_MVK_macos_surface", extension)) {
+            surface_support.cocoa = true;
+            continue;
+        }
+        if (std.mem.eql(u8, "VK_KHR_win32_surface", extension)) {
+            surface_support.windows = true;
+            continue;
+        }
+        // XCB and XLib may not be chosen even if there is support
+        // This is because on Linux, xcb, wayland and xlib can all be supported
+        // and will have the following priority: wayland > xcb > xlib
+        if (std.mem.eql(u8, "VK_KHR_xcb_surface", extension)) {
+            surface_support.xcb = true;
+            continue;
+        }
+        if (std.mem.eql(u8, "VK_KHR_xlib_surface", extension)) {
+            surface_support.xlib = true;
+            continue;
+        }
+        // This just refers to surface support in general.
+        if (std.mem.eql(u8, "VK_KHR_surface", extension)) {
+            surface_support.surface = true;
+            continue;
+        }
+    }
+
+    if (!surface_support.surface) {
+        std.log.err("Vulkan does not support outputting to surface", .{});
+        return error.SurfaceInstanceExtensionNotFound;
+    }
+
+    if ((!surface_support.windows) and (!surface_support.cocoa) and (!surface_support.wayland) and (!surface_support.xcb) and (!surface_support.xlib)) {
+        std.log.err("Vulkan has surface support, but not specific surface type found (I.e wayland, cocao, xcb, etc)", .{});
+        return error.SpecificSurfaceInstanceExtensionNotFound;
+    }
+
+    const required_instance_extensions = [2][*:0]const u8{ "VK_KHR_surface", if (surface_support.windows)
+        "VK_KHR_win32_surface"
+    else if (surface_support.cocoa)
+        "VK_MVK_macos_surface"
+    else if (surface_support.wayland)
+        "VK_KHR_wayland_surface"
+    else if (surface_support.xcb)
+        "VK_KHR_xcb_surface"
+    else
+        "VK_KHR_xlib_surface" };
 
     app.instance = try app.base_dispatch.createInstance(&vk.InstanceCreateInfo{
         .p_application_info = &vk.ApplicationInfo{
@@ -227,8 +301,8 @@ fn setup(allocator: std.mem.Allocator, app: *GraphicsContext) !void {
             .engine_version = vulkan_engine_version,
             .api_version = vulkan_api_version,
         },
-        .enabled_extension_count = @intCast(u32, instance_extension_properties.len),
-        .pp_enabled_extension_names = @ptrCast([*]const [*:0]const u8, &instance_extensions),
+        .enabled_extension_count = @intCast(u32, required_instance_extensions.len),
+        .pp_enabled_extension_names = @ptrCast([*]const [*:0]const u8, &required_instance_extensions),
         .enabled_layer_count = if (enable_validation_layers) validation_layers.len else 0,
         .pp_enabled_layer_names = if (enable_validation_layers) &validation_layers else undefined,
         .flags = .{},
