@@ -46,6 +46,17 @@ var screen_dimensions = geometry.Dimensions2D(ScreenPixelBaseType){
 var current_frame: u32 = 0;
 var previous_frame: u32 = 0;
 
+/// Defines the entire surface area of a screen in vulkans coordinate system
+/// I.e normalized device coordinates right (ndc right)
+const full_screen_extent = geometry.Extent2D(ScreenNormalizedBaseType){
+    .x = -1.0,
+    .y = -1.0,
+    .width = 2.0,
+    .height = 2.0,
+};
+
+var background_color = graphics.RGBA(f32).fromInt(u8, 74, 255, 45, 255);
+
 /// Determines the memory allocated for storing mesh data
 /// Represents the number of quads that will be able to be drawn
 /// This can be a colored quad, or a textured quad such as a character
@@ -137,6 +148,8 @@ const GraphicsContext = struct {
 
 var vkGetInstanceProcAddr: *const fn (instance: vk.Instance, procname: [*:0]const u8) vk.PfnVoidFunction = undefined;
 
+var quad_face_writer_pool: QuadFaceWriterPool(graphics.GenericVertex) = undefined;
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -148,6 +161,9 @@ pub fn main() !void {
 
     while (!graphics_context.window.shouldClose()) {
         try glfw.pollEvents();
+        try graphics_context.device_dispatch.deviceWaitIdle(graphics_context.logical_device);
+        try recordRenderPass(graphics_context, 6);
+        try renderFrame(allocator, &graphics_context);
         std.time.sleep(std.time.ns_per_ms * 100);
     }
 
@@ -762,13 +778,13 @@ fn setup(allocator: std.mem.Allocator, app: *GraphicsContext) !void {
 
     mapped_device_memory = @ptrCast([*]u8, (try app.device_dispatch.mapMemory(app.logical_device, mesh_memory, 0, memory_size, .{})).?);
 
-    // {
-    //     const vertices_addr = @ptrCast([*]align(@alignOf(graphics.GenericVertex)) u8, &mapped_device_memory[vertices_range_index_begin]);
-    //     background_quad = @ptrCast(*graphics.QuadFace(graphics.GenericVertex), &vertices_addr[0]);
-    //     background_quad.* = graphics.generateQuadColored(graphics.GenericVertex, full_screen_extent, background_color_b[0].toRGBA(), .top_left);
-    //     const vertices_quad_size: u32 = vertices_range_size / @sizeOf(graphics.GenericVertex);
-    //     quad_face_writer_pool = QuadFaceWriterPool(graphics.GenericVertex).initialize(vertices_addr, vertices_quad_size);
-    // }
+    {
+        const vertices_addr = @ptrCast([*]align(@alignOf(graphics.GenericVertex)) u8, &mapped_device_memory[vertices_range_index_begin]);
+        var background_quad = @ptrCast(*graphics.QuadFace(graphics.GenericVertex), &vertices_addr[0]);
+        background_quad.* = graphics.generateQuadColored(graphics.GenericVertex, full_screen_extent, background_color, .top_left);
+        const vertices_quad_size: u32 = vertices_range_size / @sizeOf(graphics.GenericVertex);
+        quad_face_writer_pool = QuadFaceWriterPool(graphics.GenericVertex).initialize(vertices_addr, vertices_quad_size);
+    }
 
     {
         // We won't be reusing vertices except in making quads so we can pre-generate the entire indices buffer
