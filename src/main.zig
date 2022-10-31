@@ -779,8 +779,9 @@ fn setup(allocator: std.mem.Allocator, app: *GraphicsContext) !void {
     mapped_device_memory = @ptrCast([*]u8, (try app.device_dispatch.mapMemory(app.logical_device, mesh_memory, 0, memory_size, .{})).?);
 
     {
-        const vertices_addr = @ptrCast([*]align(@alignOf(graphics.GenericVertex)) u8, &mapped_device_memory[vertices_range_index_begin]);
-        var background_quad = @ptrCast(*graphics.QuadFace(graphics.GenericVertex), &vertices_addr[0]);
+        const required_alignment = @alignOf(graphics.GenericVertex);
+        const vertices_addr = @ptrCast([*]align(required_alignment) u8, @alignCast(required_alignment, &mapped_device_memory[vertices_range_index_begin]));
+        var background_quad = @ptrCast(*graphics.QuadFace(graphics.GenericVertex), @alignCast(required_alignment, &vertices_addr[0]));
         background_quad.* = graphics.generateQuadColored(graphics.GenericVertex, full_screen_extent, background_color, .top_left);
         const vertices_quad_size: u32 = vertices_range_size / @sizeOf(graphics.GenericVertex);
         quad_face_writer_pool = QuadFaceWriterPool(graphics.GenericVertex).initialize(vertices_addr, vertices_quad_size);
@@ -1577,7 +1578,7 @@ fn createFragmentShaderModule(app: GraphicsContext, comptime shader_path: []cons
     const shader_fragment_spv align(4) = @embedFile(shader_path);
     const create_info = vk.ShaderModuleCreateInfo{
         .code_size = shader_fragment_spv.len,
-        .p_code = @ptrCast([*]const u32, shader_fragment_spv),
+        .p_code = @ptrCast([*]const u32, @alignCast(4, shader_fragment_spv)),
         .flags = .{},
     };
     return try app.device_dispatch.createShaderModule(app.logical_device, &create_info, null);
@@ -1587,7 +1588,7 @@ fn createVertexShaderModule(app: GraphicsContext, comptime shader_path: []const 
     const shader_vertex_spv align(4) = @embedFile(shader_path);
     const create_info = vk.ShaderModuleCreateInfo{
         .code_size = shader_vertex_spv.len,
-        .p_code = @ptrCast([*]const u32, shader_vertex_spv),
+        .p_code = @ptrCast([*]const u32, @alignCast(4, shader_vertex_spv)),
         .flags = .{},
     };
     return try app.device_dispatch.createShaderModule(app.logical_device, &create_info, null);

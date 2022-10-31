@@ -3,7 +3,7 @@ const std = @import("std");
 const glfw = @import("libs/mach-glfw/build.zig");
 const vkgen = @import("libs/vulkan-zig/generator/index.zig");
 
-pub fn build(b: *std.build.Builder) void {
+pub fn build(b: *std.build.Builder) !void {
     const target = b.standardTargetOptions(.{});
     const mode = b.standardReleaseOptions();
 
@@ -15,7 +15,7 @@ pub fn build(b: *std.build.Builder) void {
     exe.addPackage(gen.package);
 
     exe.addPackage(glfw.pkg);
-    glfw.link(b, exe, .{});
+    try glfw.link(b, exe, .{});
 
     exe.install();
 

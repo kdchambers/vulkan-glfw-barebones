@@ -84,7 +84,7 @@ pub fn generateQuad(
         return base_quad;
     }
 
-    pub const GenericVertex = packed struct {
+    pub const GenericVertex = extern struct {
         x: f32 = 1.0,
         y: f32 = 1.0,
         // This default value references the last pixel in our texture which
@@ -109,7 +109,7 @@ pub fn generateQuad(
     }
 
     pub fn RGB(comptime BaseType: type) type {
-        return packed struct {
+        return extern struct {
             pub fn fromInt(r: u8, g: u8, b: u8) @This() {
                 return .{
                     .r = @intToFloat(BaseType, r) / 255.0,
@@ -142,7 +142,7 @@ pub fn generateQuad(
     }
 
     pub fn RGBA(comptime BaseType: type) type {
-        return packed struct {
+        return extern struct {
             pub fn fromInt(comptime IntType: type, r: IntType, g: IntType, b: IntType, a: IntType) @This() {
                 return .{
                     .r = @intToFloat(BaseType, r) / 255.0,
