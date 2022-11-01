@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const glfw = @import("glfw");
 const vk = @import("vulkan");
 const vulkan_config = @import("vulkan_config.zig");
@@ -10,7 +11,7 @@ const clib = @cImport({
 });
 
 /// Enable Vulkan validation layers
-const enable_validation_layers = if (@import("builtin").mode == .Debug) true else false;
+const enable_validation_layers = if (builtin.mode == .Debug) true else false;
 
 const vulkan_engine_version = vk.makeApiVersion(0, 0, 1, 0);
 const vulkan_engine_name = "No engine";
@@ -206,13 +207,14 @@ fn toSlice(string: [*:0]const u8) []const u8 {
 }
 
 fn setup(allocator: std.mem.Allocator, app: *GraphicsContext) !void {
+    const vulkan_lib_symbol = comptime switch (builtin.os.tag) {
+        .windows => "vulkan-1.dll",
+        .macos => "libvulkan.1.dylib",
+        .netbsd, .openbsd => "libvulkan.so",
+        else => "libvulkan.so.1",
+    };
 
-    // TODO This is linux specific
-    // Windows:        vulkan-1.dll
-    // Apple:          libvulkan.1.dylib
-    // OpenBSD/NetBSD: libvulkan.so
-    // Rest:           libvulkan.so.1
-    if (clib.dlopen("libvulkan.so.1", clib.RTLD_NOW)) |vulkan_loader| {
+    if (clib.dlopen(vulkan_lib_symbol, clib.RTLD_NOW)) |vulkan_loader| {
         const vk_get_instance_proc_addr_fn_opt = @ptrCast(?*const fn (instance: vk.Instance, procname: [*:0]const u8) vk.PfnVoidFunction, clib.dlsym(vulkan_loader, "vkGetInstanceProcAddr"));
         if (vk_get_instance_proc_addr_fn_opt) |vk_get_instance_proc_addr_fn| {
             vkGetInstanceProcAddr = vk_get_instance_proc_addr_fn;
