@@ -150,6 +150,13 @@ var vkGetInstanceProcAddr: *const fn (instance: vk.Instance, procname: [*:0]cons
 
 var quad_face_writer_pool: QuadFaceWriterPool(graphics.GenericVertex) = undefined;
 
+fn onFramebufferResized(window: glfw.Window, width: u32, height: u32) void {
+    _ = window;
+    screen_dimensions.width = @intCast(u16, width);
+    screen_dimensions.height = @intCast(u16, height);
+    framebuffer_resized = true;
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -159,13 +166,17 @@ pub fn main() !void {
     var graphics_context: GraphicsContext = undefined;
     try setup(allocator, &graphics_context);
 
+    graphics_context.window.setFramebufferSizeCallback(onFramebufferResized);
+
     while (!graphics_context.window.shouldClose()) {
         try glfw.pollEvents();
         try graphics_context.device_dispatch.deviceWaitIdle(graphics_context.logical_device);
         try recordRenderPass(graphics_context, 6);
         try renderFrame(allocator, &graphics_context);
-        std.time.sleep(std.time.ns_per_ms * 100);
+        // 30 fps
+        std.time.sleep(std.time.ns_per_ms * 16 * 2);
     }
+    try graphics_context.device_dispatch.deviceWaitIdle(graphics_context.logical_device);
 
     cleanup(allocator, &graphics_context);
     glfw.terminate();
@@ -941,6 +952,7 @@ fn recreateSwapchain(allocator: std.mem.Allocator, app: *GraphicsContext) !void 
     const recreate_swapchain_duration = @intCast(u64, recreate_swapchain_end - recreate_swapchain_start);
 
     std.log.info("Swapchain recreated in {}", .{std.fmt.fmtDuration(recreate_swapchain_duration)});
+    framebuffer_resized = false;
 }
 
 fn recordRenderPass(
@@ -949,8 +961,6 @@ fn recordRenderPass(
 ) !void {
     std.debug.assert(app.command_buffers.len > 0);
     std.debug.assert(app.swapchain_images.len == app.command_buffers.len);
-    std.debug.assert(screen_dimensions.width == app.swapchain_extent.width);
-    std.debug.assert(screen_dimensions.height == app.swapchain_extent.height);
 
     _ = try app.device_dispatch.waitForFences(
         app.logical_device,
@@ -1060,10 +1070,19 @@ fn renderFrame(allocator: std.mem.Allocator, app: *GraphicsContext) !void {
         .null_handle,
     );
 
+    if (framebuffer_resized) {
+        try recreateSwapchain(allocator, app);
+        return;
+    }
+
     // https://www.khronos.org/registry/vulkan/specs/1.3-extensions/man/html/vkAcquireNextImageKHR.html
     switch (acquire_image_result.result) {
         .success => {},
         .error_out_of_date_khr, .suboptimal_khr => {
+            const size = app.window.getFramebufferSize() catch glfw.Window.Size{ .width = screen_dimensions.width, .height = screen_dimensions.height };
+            screen_dimensions.width = @intCast(u16, size.width);
+            screen_dimensions.height = @intCast(u16, size.height);
+            std.log.info("Updated screen to {d}, {d}", .{ screen_dimensions.width, screen_dimensions.height });
             try recreateSwapchain(allocator, app);
             return;
         },
@@ -1133,6 +1152,10 @@ fn renderFrame(allocator: std.mem.Allocator, app: *GraphicsContext) !void {
     switch (present_result) {
         .success => {},
         .error_out_of_date_khr, .suboptimal_khr => {
+            const size = app.window.getFramebufferSize() catch glfw.Window.Size{ .width = screen_dimensions.width, .height = screen_dimensions.height };
+            screen_dimensions.width = @intCast(u16, size.width);
+            screen_dimensions.height = @intCast(u16, size.height);
+            std.log.info("Updated screen to {d}, {d}", .{ screen_dimensions.width, screen_dimensions.height });
             try recreateSwapchain(allocator, app);
             return;
         },
